@@ -15,9 +15,9 @@
 .PHONY: test
 
 # VERSION is currently based on the last commit
-VERSION?=`git describe --tags`
-COMMIT=`git rev-parse HEAD`
-BUILD=`date +%FT%T%z`
+VERSION?=$(shell git describe --tags)
+COMMIT=$(shell git rev-parse HEAD)
+BUILD=$(shell date +%FT%T%z)
 LDFLAG_LOCATION=sigs.k8s.io/descheduler/cmd/descheduler/app
 
 LDFLAGS=-ldflags "-X ${LDFLAG_LOCATION}.version=${VERSION} -X ${LDFLAG_LOCATION}.buildDate=${BUILD} -X ${LDFLAG_LOCATION}.gitCommit=${COMMIT}"
@@ -26,7 +26,7 @@ GOLANGCI_VERSION := v1.15.0
 HAS_GOLANGCI := $(shell which golangci-lint)
 
 # REGISTRY is the container registry to push into.
-REGISTRY?=staging-k8s.gcr.io
+REGISTRY?=gcr.io/k8s-staging-descheduler
 
 # IMAGE is the image name of descheduler
 IMAGE:=descheduler:$(VERSION)
