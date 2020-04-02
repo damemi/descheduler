@@ -29,3 +29,4 @@ script:
 - make build
 - make test-unit
 - make test-e2e
+- make verify-deps

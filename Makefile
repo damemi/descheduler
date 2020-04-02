@@ -12,6 +12,9 @@
 # # See the License for the specific language governing permissions and
 # # limitations under the License.
 
+# This includes the `verify-deps` target
+include ./vendor/github.com/openshift/build-machinery-go/make/targets/openshift/deps.mk
+
 .PHONY: test
 
 # VERSION is currently based on the last commit
