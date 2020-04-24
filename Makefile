@@ -44,7 +44,7 @@ IMAGE_GCLOUD:=$(REGISTRY)/descheduler:$(VERSION)
 all: build
 
 build:
-	CGO_ENABLED=0 go build ${LDFLAGS} -o _output/bin/descheduler sigs.k8s.io/descheduler/cmd/descheduler
+	CGO_ENABLED=0 go build -mod=vendor ${LDFLAGS} -o _output/bin/descheduler sigs.k8s.io/descheduler/cmd/descheduler
 
 dev-image: build
 	docker build -f Dockerfile.dev -t $(IMAGE) .
