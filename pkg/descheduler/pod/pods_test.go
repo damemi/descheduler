@@ -17,10 +17,14 @@ limitations under the License.
 package pod
 
 import (
+	"context"
 	"testing"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes/fake"
+	core "k8s.io/client-go/testing"
 	"sigs.k8s.io/descheduler/pkg/utils"
 	"sigs.k8s.io/descheduler/test"
 )
@@ -233,5 +237,34 @@ func TestPodTypes(t *testing.T) {
 	if IsDaemonsetPod(ownerRefList) || IsPodWithLocalStorage(p1) || IsCriticalPod(p1) || IsMirrorPod(p1) {
 		t.Errorf("Expected p1 to be a normal pod.")
 	}
+}
 
+func TestListPodsOnANode(t *testing.T) {
+	testCases := []struct {
+		name             string
+		pods             []v1.Pod
+		node             *v1.Node
+		expectedPodCount int
+	}{
+		{
+			name: "test listing pods on a node",
+			pods: []v1.Pod{
+				*test.BuildTestPod("pod1", 100, 0, "n1", nil),
+				*test.BuildTestPod("pod2", 100, 0, "n1", nil),
+				*test.BuildTestPod("pod3", 100, 0, "n2", nil),
+			},
+			node:             test.BuildTestNode("n1", 2000, 3000, 10, nil),
+			expectedPodCount: 2,
+		},
+	}
+	for _, testCase := range testCases {
+		fakeClient := &fake.Clientset{}
+		fakeClient.Fake.AddReactor("list", "pods", func(action core.Action) (bool, runtime.Object, error) {
+			return true, &v1.PodList{Items: testCase.pods}, nil
+		})
+		pods, _ := ListPodsOnANode(context.TODO(), fakeClient, testCase.node)
+		if len(pods) != testCase.expectedPodCount {
+			t.Errorf("expected %v pods on node %v, got %+v", testCase.expectedPodCount, testCase.node.Name, len(pods))
+		}
+	}
 }

@@ -21,7 +21,6 @@ import (
 	"fmt"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/util/errors"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/klog"
@@ -81,20 +80,16 @@ func ListEvictablePodsOnNode(ctx context.Context, client clientset.Interface, no
 }
 
 func ListPodsOnANode(ctx context.Context, client clientset.Interface, node *v1.Node) ([]*v1.Pod, error) {
-	fieldSelector, err := fields.ParseSelector("spec.nodeName=" + node.Name + ",status.phase!=" + string(v1.PodSucceeded) + ",status.phase!=" + string(v1.PodFailed))
-	if err != nil {
-		return []*v1.Pod{}, err
-	}
-
-	podList, err := client.CoreV1().Pods(v1.NamespaceAll).List(ctx,
-		metav1.ListOptions{FieldSelector: fieldSelector.String()})
+	podList, err := client.CoreV1().Pods(v1.NamespaceAll).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return []*v1.Pod{}, err
 	}
 
 	pods := make([]*v1.Pod, 0)
-	for i := range podList.Items {
-		pods = append(pods, &podList.Items[i])
+	for i, pod := range podList.Items {
+		if pod.Spec.NodeName == node.Name && pod.Status.Phase != v1.PodSucceeded && pod.Status.Phase != v1.PodFailed {
+			pods = append(pods, &podList.Items[i])
+		}
 	}
 	return pods, nil
 }
