@@ -47,4 +47,28 @@ entries:
     urls:
     - https://github.com/damemi/descheduler/releases/download/descheduler-0.18.0/descheduler-0.18.0.tgz
     version: 0.18.0
+  descheduler-helm-chart:
+  - apiVersion: v1
+    appVersion: 0.18.0
+    created: "2020-07-22T18:22:23.590965348Z"
+    description: Descheduler for Kubernetes is used to rebalance clusters by evicting
+      pods that can potentially be scheduled on better nodes. In the current implementation,
+      descheduler does not schedule replacement of evicted pods but relies on the
+      default scheduler for that.
+    digest: 736a6f93c0310ab9d1591aca44c9514a9e2ed29f873e1aa986180f27582e3b6f
+    home: https://github.com/kubernetes-sigs/descheduler
+    icon: https://kubernetes.io/images/favicon.png
+    keywords:
+    - kubernetes
+    - descheduler
+    - kube-scheduler
+    maintainers:
+    - email: steve.hipwell@github.com
+      name: stevehipwell
+    name: descheduler-helm-chart
+    sources:
+    - https://github.com/kubernetes-sigs/descheduler
+    urls:
+    - https://github.com/damemi/descheduler/releases/download/descheduler-helm-chart-0.18.999/descheduler-helm-chart-0.18.999.tgz
+    version: 0.18.999
 generated: "2020-07-22T17:54:03.292346075Z"
