@@ -18,13 +18,13 @@ package strategies
 
 import (
 	"context"
-	"math"
-
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
+	"math"
 
 	"sigs.k8s.io/descheduler/pkg/api"
 	"sigs.k8s.io/descheduler/pkg/descheduler/evictions"
@@ -38,15 +38,16 @@ import (
 // https://github.com/kubernetes-sigs/descheduler/blob/master/pkg/descheduler/strategies/pod_antiaffinity.go
 
 // AntiAffinityTerm's topology key value used in predicate metadata
-type topologyPair struct {
-	key   string
-	value string
+type topologyConstraint struct {
+	key           string
+	value         string
+	labelSelector string
 }
 
 type podSet map[*v1.Pod]struct{}
 
 // for each topology pair, what is the set of pods
-type topologyPairToPodSetMap map[topologyPair]podSet
+type topologyPairToPodSetMap map[topologyConstraint]podSet
 
 // for each topologyKey, what is the map of topologyKey pairs to pods
 type topologyKeyToTopologyPairSetMap map[string]topologyPairToPodSetMap
@@ -92,38 +93,121 @@ func RemovePodsViolatingTopologySpreadConstraint(
 	// @seanmalloy
 	//
 	// find all canidate pods and namespaces for eviction
+
 	namespacedTopologySpreadConstrainPods := make(map[string][]*v1.Pod)
-	/*for _, node := range nodes {
-		pods, err := podutil.ListPodsOnANode(ctx, client, node, podEvictor.IsEvictable)
+	namespacedTpPairsToMatchingCount := make(map[string]map[topologyConstraint]int32)
+	for _, node := range nodes {
+		pods, err := podutil.ListPodsOnANode(
+			ctx,
+			client,
+			node,
+			podutil.WithFilter(podEvictor.Evictable().IsEvictable))
 		if err != nil {
 			return
 		}
+
+		// First record all of the constraints by namespace
 		for _, pod := range pods {
 			if pod.Spec.TopologySpreadConstraints != nil {
 				namespacedTopologySpreadConstrainPods[pod.Namespace] = append(namespacedTopologySpreadConstrainPods[pod.Namespace], pod)
 			}
+			for _, c := range pod.Spec.TopologySpreadConstraints {
+				if nodeValue, ok := node.Labels[c.TopologyKey]; ok {
+					tp := topologyConstraint{key: c.TopologyKey, value: nodeValue, labelSelector: c.LabelSelector.String()}
+					namespacedTpPairsToMatchingCount[pod.Namespace][tp] = 0
+				}
+			}
 		}
-	} */
 
-	// @seanmalloy need to iterate through each namespace and evict pods to rebalance
-	for ns, pods := range namespacedTopologySpreadConstrainPods {
-		klog.V(1).Infof("processing namespace: %v pods; %v", ns, pods)
-		podsToEvict := getPodsViolatingPodsTopologySpreadConstraint(pods)
-		podutil.SortPodsBasedOnPriorityLowToHigh(podsToEvict)
-		/* for _, pod := range podsToEvict {
-			success, err := podEvictor.EvictPod(ctx, pod, node, "TopologySpreadConstraint") // START figure out how to pass in node here to fix compile error
-			if success {
-				klog.V(1).Infof("Evicted pod: %#v because it violated PodTopologySpreadConstraint", pod.Name)
-			}
-
+		// Go through each constraint and pod in a namespace and find any that match:
+		//  1. the topology key/value for that pod's node
+		//  2. the labelSelector for the topology constraint
+		for namespace, tps := range namespacedTpPairsToMatchingCount {
+			namespacePods, err := client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
 			if err != nil {
-				klog.Errorf("Error evicting pod: (%#v)", err)
-				break
+				klog.ErrorS(err, "couldn't list pods in namespace", "namespace", namespace)
+				return
 			}
-		} */
+			for tp, _ := range tps {
+				count := 0
+				for _, pod := range namespacePods.Items {
+					if pod.Spec.NodeName != node.Name {
+						continue
+					}
+					selector, err := metav1.ParseToLabelSelector(tp.labelSelector)
+					if err != nil {
+						klog.ErrorS(err, "couldn't parse label selector", "selector", tp.labelSelector)
+					}
+					s, err := metav1.LabelSelectorAsSelector(selector)
+					if err != nil {
+						klog.ErrorS(err, "couldn't parse label selector as selector", "selector", tp.labelSelector)
+					}
+					if !s.Matches(labels.Set(pod.Labels)) {
+						continue
+					}
+					count++
+				}
+				namespacedTpPairsToMatchingCount[namespace][tp] = int32(count)
+			}
+		}
 	}
-	// START HERE
-	return
+
+	for namespace, pods := range namespacedTopologySpreadConstrainPods {
+		allNamespacePods, err := client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			klog.ErrorS(err, "couldn't list pods in namespace", "namespace", namespace)
+			return
+		}
+
+		// 3D map: map[topologyKey][labelSelector][topologyValue]:count
+		// This lets us count the size of different topologies,
+		// measured in the number of pods matching a selector in that topology
+		topologyBuckets := make(map[string]map[string]map[string]int)
+
+		// For every constrained pod in the namespace, compare to all other pods in the namespace
+		// including itself, because we need to include the constrained pods in the total to calculate skew
+		for _, pod := range allNamespacePods.Items {
+			for _, constrainedPod := range pods {
+				for _, constraint := range constrainedPod.Spec.TopologySpreadConstraints {
+					// Initialize this key's bucket, if necessary
+					if topologyBuckets[constraint.TopologyKey] == nil {
+						topologyBuckets[constraint.TopologyKey] = make(map[string]map[string]int)
+					}
+
+					// If this pod is the constrained pod, add +1 to this constraint's bucket and continue
+					if equality.Semantic.DeepEqual(pod, constrainedPod) {
+						// bucket +=1
+						continue
+					}
+
+					// Check if this pod matches the constraint's labelSelector
+					s, err := metav1.LabelSelectorAsSelector(constraint.LabelSelector)
+					if err != nil {
+						klog.ErrorS(err, "couldn't parse label selector as selector", "selector", constraint.LabelSelector)
+					}
+					if !s.Matches(labels.Set(pod.Labels)) {
+						continue
+					}
+
+					// Check if this pod's node has this topology key
+					node, err := client.CoreV1().Nodes().Get(ctx, pod.Spec.NodeName, metav1.GetOptions{})
+					if err != nil {
+						klog.ErrorS(err, "couldn't get node", "node", pod.Spec.NodeName)
+					}
+					if topologyValue, ok := node.Labels[constraint.TopologyKey]; !ok {
+						continue
+					} else {
+						// Increase the count for this bucket by 1
+						// This is the count for pods in a topology(Value), sorted by labelSelector, sorted by topologyKey
+						//
+						// bucket +1
+					}
+				}
+			}
+		}
+	}
+
+
 	// @seanmalloy need to calculate which pods should be evicted to "balance" based on topology domains
 	//
 	// need to implement the stubbed in function getPodsViolatingPodsTopologySpreadConstraint
@@ -155,7 +239,7 @@ func RemovePodsViolatingTopologySpreadConstraint(
 				if node.Labels[topoConstraint.TopologyKey] == "" {
 					continue
 				}
-				pair := topologyPair{key: topoConstraint.TopologyKey, value: node.Labels[topoConstraint.TopologyKey]}
+				pair := topologyConstraint{key: topoConstraint.TopologyKey, value: node.Labels[topoConstraint.TopologyKey]}
 				if namespaceToTopologyKeySet[namespacedConstraint.Namespace][topoConstraint.TopologyKey][pair] == nil {
 					// this ensures that nodes which match topokey but no pods are accounted for
 					namespaceToTopologyKeySet[namespacedConstraint.Namespace][topoConstraint.TopologyKey][pair] = make(podSet)
@@ -195,7 +279,7 @@ func RemovePodsViolatingTopologySpreadConstraint(
 					klog.V(2).Infof("Found a node %v in pod %v, which is not present in our map, ignoring it...", pod.Spec.NodeName, pod.Name)
 					continue
 				}
-				pair := topologyPair{key: topoConstraint.TopologyKey, value: nodeMap[pod.Spec.NodeName].Labels[topoConstraint.TopologyKey]}
+				pair := topologyConstraint{key: topoConstraint.TopologyKey, value: nodeMap[pod.Spec.NodeName].Labels[topoConstraint.TopologyKey]}
 				if namespaceToTopologyKeySet[namespacedConstraint.Namespace][topoConstraint.TopologyKey][pair] == nil {
 					// this ensures that nodes which match topokey but no pods are accounted for
 					namespaceToTopologyKeySet[namespacedConstraint.Namespace][topoConstraint.TopologyKey][pair] = make(podSet)
@@ -312,7 +396,7 @@ func getPodsToEvict(countToEvict int32, podMap map[*v1.Pod]struct{}) []*v1.Pod {
 }
 
 // TODO: this function is not called
-func addTopologyPair(topoMap map[topologyPair]podSet, pair topologyPair, pod *v1.Pod) {
+func addTopologyPair(topoMap map[topologyConstraint]podSet, pair topologyConstraint, pod *v1.Pod) {
 	if topoMap[pair] == nil {
 		topoMap[pair] = make(map[*v1.Pod]struct{})
 	}
