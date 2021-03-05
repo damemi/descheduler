@@ -1,0 +1,5 @@
+*.swp
+*.tgz
+TODO.md
+gh-md-toc
+build

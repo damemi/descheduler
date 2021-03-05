@@ -21,5 +21,6 @@ package tools
 
 import (
 	_ "github.com/client9/misspell/cmd/misspell"
+	_ "github.com/ekalinin/github-markdown-toc.go"
 	_ "k8s.io/code-generator"
 )
