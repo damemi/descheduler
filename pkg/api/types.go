@@ -54,6 +54,9 @@ type DeschedulerStrategy struct {
 
 	// Strategy parameters
 	Params *StrategyParameters
+
+	// tmp field for demo
+	Foo bool
 }
 
 // Namespaces carries a list of included/excluded namespaces

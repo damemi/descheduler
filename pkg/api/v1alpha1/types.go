@@ -54,6 +54,9 @@ type DeschedulerStrategy struct {
 
 	// Strategy parameters
 	Params *StrategyParameters `json:"params,omitempty"`
+
+	// tmp field for demo
+	Foo bool `json:"foo,omitempty`
 }
 
 // Namespaces carries a list of included/excluded namespaces
