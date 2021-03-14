@@ -15,6 +15,8 @@ git archive --format=tar --prefix=descheduler/ "$(git write-tree)" | (cd "${_des
 _deschedulertmp="${_deschedulertmp}/descheduler"
 
 pushd "${_deschedulertmp}" > /dev/null 2>&1
+export PRJ_PREFIX="${_deschedulertmp}"
+echo "PRJ_PREFIX=: ","${PRJ_PREFIX}"
 hack/update-generated-conversions.sh
 popd > /dev/null 2>&1
 
@@ -27,6 +29,8 @@ if ! _out="$(diff -Naupr pkg/ "${_deschedulertmp}/pkg/")"; then
     echo "Generated conversions verify failed."
 fi
 popd > /dev/null 2>&1
+
+unset PRJ_PREFIX
 
 if [[ ${ret} -gt 0 ]]; then
     exit ${ret}
