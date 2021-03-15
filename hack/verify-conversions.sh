@@ -17,7 +17,12 @@ _deschedulertmp="${_deschedulertmp}/descheduler"
 pushd "${_deschedulertmp}" > /dev/null 2>&1
 export PRJ_PREFIX="${_deschedulertmp}"
 echo "PRJ_PREFIX=: ","${PRJ_PREFIX}"
-hack/update-generated-conversions.sh
+go build -o "${OS_OUTPUT_BINPATH}/conversion-gen" "k8s.io/code-generator/cmd/conversion-gen"
+
+${OS_OUTPUT_BINPATH}/conversion-gen \
+		--go-header-file "hack/boilerplate/boilerplate.go.txt" \
+		--input-dirs "./pkg/apis/componentconfig/v1alpha1,./pkg/api/v1alpha1" \
+		--output-file-base zz_generated.conversion
 popd > /dev/null 2>&1
 
 ret=0
