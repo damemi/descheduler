@@ -40,6 +40,9 @@ type DeschedulerPolicy struct {
 
 	// MaxNoOfPodsToEvictPerNode restricts maximum of pods to be evicted per node.
 	MaxNoOfPodsToEvictPerNode *int
+
+	// Foo does foo
+	Foo bool
 }
 
 type StrategyName string
